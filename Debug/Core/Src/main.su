@@ -1,6 +1,7 @@
-main.c:76:5:main	8	static
-main.c:124:6:SystemClock_Config	80	static
-main.c:164:13:MX_ADC_Init	24	static
-main.c:223:13:MX_GPIO_Init	48	static
-main.c:265:6:measureTextile	16	static
-main.c:334:6:Error_Handler	8	static
+main.c:77:5:main	8	static
+main.c:126:6:SystemClock_Config	80	static
+main.c:166:13:MX_ADC_Init	24	static
+main.c:223:13:MX_DMA_Init	16	static
+main.c:241:13:MX_GPIO_Init	48	static
+main.c:283:6:measureTextile	24	static
+main.c:359:6:Error_Handler	8	static

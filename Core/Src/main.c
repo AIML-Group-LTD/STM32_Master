@@ -44,19 +44,20 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc;
+DMA_HandleTypeDef hdma_adc;
 
 /* USER CODE BEGIN PV */
+double m_ADC0[8], m_ADC1[8];
 
-int32_t measurementADC0[8], measurementADC1[8];
-
-uint8_t output_msg[100];
 uint16_t LED_OUT[8] = {LED1_Pin,LED2_Pin,LED3_Pin,LED4_Pin,LED5_Pin,LED6_Pin,LED7_Pin,LED8_Pin};
+uint16_t adc_buffer[2], measurementADC0[8], measurementADC1[8];
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -97,6 +98,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
 
@@ -106,13 +108,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	//Wait for button press to start measurement
+	if(HAL_GPIO_ReadPin(Scan_Button_GPIO_Port, Scan_Button_Pin) == GPIO_PIN_SET){
+	  	measureTextile();
+	}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-	if(HAL_GPIO_ReadPin(Scan_Button_GPIO_Port, Scan_Button_Pin) == GPIO_PIN_SET){
-		measureTextile();
-	}
   }
   /* USER CODE END 3 */
 }
@@ -187,7 +189,7 @@ static void MX_ADC_Init(void)
   hadc.Init.DiscontinuousConvMode = DISABLE;
   hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc.Init.DMAContinuousRequests = DISABLE;
+  hadc.Init.DMAContinuousRequests = ENABLE;
   hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   if (HAL_ADC_Init(&hadc) != HAL_OK)
   {
@@ -197,7 +199,7 @@ static void MX_ADC_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_71CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -212,6 +214,22 @@ static void MX_ADC_Init(void)
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
 }
 
@@ -270,7 +288,12 @@ void measureTextile(void){
 		//Turns on each LED and reads the ADC measurement
 		//Then outputs data to Jetson TX2
 		for(int j=0; j<8; j++){
-			//if(i==1||2||3){
+
+			//counter used to move through the DMA buffer
+			int k = 0;
+
+			//Check if going through control or measurement section
+			//if(i==1){
 				HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_SET);
 				//Turn on LED to signify each LED OUT
 				HAL_GPIO_WritePin(GPIOC, LD4_Pin, GPIO_PIN_SET);
@@ -279,48 +302,50 @@ void measureTextile(void){
 				//HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_RESET);
 			//}
 
-			//Start the ADC
-			HAL_ADC_Start(&hadc);
+			//Start the ADC to DMA
+			HAL_ADC_Start_DMA(&hadc, (uint32_t*)adc_buffer, 2);
+
+			//Wait for the ADC conversion complete callback
+			HAL_ADC_ConvCpltCallback(&hadc);
+
 			//Turn on LED to signify ADC Read
 			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_SET);
 
-			if(HAL_ADC_PollForConversion(&hadc, 10) == HAL_OK){
-				//Poll ADC Channel 0
-				measurementADC0[j] = 0;
-				measurementADC0[j] = HAL_ADC_GetValue(&hadc);
-			}
-			else{
-				Error_Handler();
-			}
+			HAL_Delay(10);
+
+			//Poll ADC Channel 0
+			measurementADC0[j] = adc_buffer[k];
+			m_ADC0[j] = adc_buffer[k]/1365.333333;
+			//m_ADC0[j] = adc_buffer[k]/1241.212121;
 			HAL_Delay(500);
+
 			//Turn off LED to signify ADC Read complete
 			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_RESET);
 			HAL_Delay(500);
 
+			//Move to DMA second reading
+			k++;
+
 			//Turn on LED to signify ADC Read
 			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_SET);
-			if(HAL_ADC_PollForConversion(&hadc, 10) == HAL_OK){
-				//Poll ADC Channel 1
-				measurementADC1[j] = 0;
-				measurementADC1[j] = HAL_ADC_GetValue(&hadc);
-			}
-			else{
-				Error_Handler();
-			}
+
+			//Poll ADC Channel 1
+			measurementADC1[j] = adc_buffer[k];
+			m_ADC1[j] = adc_buffer[k]/1365.333333;
+			//m_ADC1[j] = adc_buffer[k]/1241.212121;
 			HAL_Delay(500);
+
+			HAL_ADC_Stop_DMA(&hadc);
 			//Turn off LED to signify ADC Read complete
 			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_RESET);
 
-			//Stop the ADC
-			HAL_ADC_Stop(&hadc);
 
 			HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_RESET);
 			//Turn off LED to signify each LED OUT
 			HAL_GPIO_WritePin(GPIOC, LD4_Pin, GPIO_PIN_RESET);
-
 			HAL_Delay(1000);
-		//}
-	}
+		}
+	//}
 
 	HAL_Delay(10);
 }
