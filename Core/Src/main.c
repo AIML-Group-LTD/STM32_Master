@@ -25,6 +25,9 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+
+#include "retarget.h"
 
 /* USER CODE END Includes */
 
@@ -46,11 +49,21 @@
 ADC_HandleTypeDef hadc;
 DMA_HandleTypeDef hdma_adc;
 
-/* USER CODE BEGIN PV */
-double m_ADC0[8], m_ADC1[8];
+UART_HandleTypeDef huart1;
+DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_usart1_rx;
 
+/* USER CODE BEGIN PV */
+double corrected_measure[8], difference[3][8];
+const char *wavelengths[8] = {"400nm-700nm", "850nm", "950nm", "1050nm", "1200nm", "1300nm", "1450nm", "1650nm"};
+volatile uint8_t toggle = 0;
+char str[8];
+
+uint8_t tx_buffer[10];
+
+uint16_t wavelength_correction[8] = {0,0,0,0,0,0,0,0};
+uint16_t adc_buffer[2], measurementADC0[3][8], measurementADC1[3][8];			//measurementADCx[3][j] keeps corrected values
 uint16_t LED_OUT[8] = {LED1_Pin,LED2_Pin,LED3_Pin,LED4_Pin,LED5_Pin,LED6_Pin,LED7_Pin,LED8_Pin};
-uint16_t adc_buffer[2], measurementADC0[8], measurementADC1[8];
 
 /* USER CODE END PV */
 
@@ -59,8 +72,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -100,6 +113,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -110,11 +124,46 @@ int main(void)
   {
 	//Wait for button press to start measurement
 	if(HAL_GPIO_ReadPin(Scan_Button_GPIO_Port, Scan_Button_Pin) == GPIO_PIN_SET){
-	  	measureTextile();
+		measureTextile();
+
+		HAL_Delay(1);
+
+		char buf[100];
+
+		printf("\r\nYour name: ");
+		scanf("%s", buf);
+		printf("\r\nHello, %s!\r\n", buf);
+
+		/*if (measurementADC1[0][0] != 0){
+			uint16_t k;
+
+			//tx_buffer[i] = sprintf(str, "%u", difference[1][i]);
+
+			for(int i = 0; i < 8; i++){
+				sprintf(str, "%u", difference[1][i]);
+				for(int j = 0; j < 4; j++){
+					tx_buffer[i] = str[i];
+				}
+				tx_buffer[4] = '\r';
+				tx_buffer[5] = '\n';
+
+				k=0;
+				while(k++<6){
+					HAL_UART_Transmit_DMA(&huart1, tx_buffer, 6);
+				}
+			}
+		}*/
 	}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+
+	 /* while(1)
+	  {
+	    //HAL_UART_Transmit_DMA(&huart1, (uint8_t *)str, 10);
+	    HAL_UART_Transmit_DMA(&huart1, tx_buffer, 6);
+	  }*/
   }
   /* USER CODE END 3 */
 }
@@ -127,6 +176,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -153,6 +203,12 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1;
+  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK1;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
@@ -218,6 +274,41 @@ static void MX_ADC_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 9600;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -230,6 +321,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel2_3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 
@@ -283,7 +377,7 @@ static void MX_GPIO_Init(void)
 void measureTextile(void){
 
 	//Scan the material 3 times, 2 controls and 1 measurement
-	//for(int i=0; i<3; i++){
+	for(int i=0; i<3; i++){
 
 		//Turns on each LED and reads the ADC measurement
 		//Then outputs data to Jetson TX2
@@ -293,62 +387,114 @@ void measureTextile(void){
 			int k = 0;
 
 			//Check if going through control or measurement section
-			//if(i==1){
+			if(i==1){
 				HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_SET);
 				//Turn on LED to signify each LED OUT
 				HAL_GPIO_WritePin(GPIOC, LD4_Pin, GPIO_PIN_SET);
-			//}
-			//else{
-				//HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_RESET);
-			//}
+			}
+			else{
+				HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_RESET);
+			}
 
 			//Start the ADC to DMA
 			HAL_ADC_Start_DMA(&hadc, (uint32_t*)adc_buffer, 2);
 
-			//Wait for the ADC conversion complete callback
-			HAL_ADC_ConvCpltCallback(&hadc);
-
 			//Turn on LED to signify ADC Read
-			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_SET);
-
-			HAL_Delay(10);
+			//HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_SET);
+			HAL_Delay(1);
 
 			//Poll ADC Channel 0
-			measurementADC0[j] = adc_buffer[k];
-			m_ADC0[j] = adc_buffer[k]/1365.333333;
-			//m_ADC0[j] = adc_buffer[k]/1241.212121;
-			HAL_Delay(500);
+			measurementADC0[i][j] = 0;
+			measurementADC0[i][j] = adc_buffer[k];
 
 			//Turn off LED to signify ADC Read complete
-			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_RESET);
-			HAL_Delay(500);
+			//HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_RESET);
+			HAL_Delay(1);
 
 			//Move to DMA second reading
 			k++;
 
 			//Turn on LED to signify ADC Read
-			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_SET);
+			//HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_SET);
+			//HAL_Delay(25);
 
 			//Poll ADC Channel 1
-			measurementADC1[j] = adc_buffer[k];
-			m_ADC1[j] = adc_buffer[k]/1365.333333;
-			//m_ADC1[j] = adc_buffer[k]/1241.212121;
-			HAL_Delay(500);
+			measurementADC1[i][j] = 0;
+			measurementADC1[i][j] = adc_buffer[k];
 
 			HAL_ADC_Stop_DMA(&hadc);
-			//Turn off LED to signify ADC Read complete
-			HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_RESET);
-
 
 			HAL_GPIO_WritePin(GPIOB, LED_OUT[j], GPIO_PIN_RESET);
+			//Turn off LED to signify ADC Read complete
+			//HAL_GPIO_WritePin(GPIOC, LD3_Pin, GPIO_PIN_RESET);
 			//Turn off LED to signify each LED OUT
 			HAL_GPIO_WritePin(GPIOC, LD4_Pin, GPIO_PIN_RESET);
-			HAL_Delay(1000);
+			HAL_Delay(1);
 		}
-	//}
+	}
 
-	HAL_Delay(10);
+
+
+	// This is my fiddling with different pre-processing techniques we can use
+	for (int i=0; i<8; i++){
+
+		//for(int j=0; j<8; j++){
+			//HAL_UART_Transmit_DMA(&huart1, measurementADC0[i][j], 8);
+		//}
+
+
+		//Correct the values by subtracting the control scans
+		difference[0][i] = (double)measurementADC1[0][i] - (double)measurementADC0[0][i];
+		difference[1][i] = (double)measurementADC1[1][i] - (double)measurementADC0[1][i];
+		difference[2][i] = (double)measurementADC1[2][i] - (double)measurementADC0[2][i];
+
+		//calculate the % difference in ADC0 and ADC1
+		//corrected_measure[j] = difference[1][j] - ((difference[0][j] + difference[2][j])/2) - wavelength_correction[j];
+	}
+
+	HAL_Delay(1);
 }
+
+void DMA1_Stream6_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_usart1_tx);
+}
+
+void USART2_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&huart1);
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  uint16_t i;
+  toggle = !toggle;
+
+  for(i = 3; i < 6; i++)
+  {
+    if(toggle)
+      tx_buffer[i] = '&';
+    else
+      tx_buffer[i] = 'z';
+  }
+
+  tx_buffer[8] = '\r';
+  tx_buffer[9] = '\n';
+}
+
+void HAL_UART_TxHalfCpltCallback(UART_HandleTypeDef *huart)
+{
+  uint16_t i;
+
+  for(i = 0; i < 3; i++)
+  {
+    if(toggle)
+      tx_buffer[i] = 'y';
+    else
+      tx_buffer[i] = '|';
+  }
+}
+
 
 /* USER CODE END 4 */
 
